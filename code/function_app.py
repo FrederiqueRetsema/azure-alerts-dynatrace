@@ -11,10 +11,9 @@ from azure.keyvault.secrets import SecretClient
 from azure.mgmt.monitor import MonitorManagementClient
 from azure.mgmt.resource import ResourceManagementClient
 
-AZURE_KEYVAULT_NAME = "dynatrace-api"
+AZURE_KEYVAULT_NAME = os.environ["KEYVAULT_NAME"]  
 USER_MANAGED_IDENTITY_ID = os.environ["USER_MANAGED_IDENTITY_ID"]  
 
-#app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 app = func.FunctionApp()
 
 logger = logging.getLogger()
@@ -130,9 +129,6 @@ def remove_spaces_from_tag(tag: str) -> str:
 
 def get_alert_metadata(flattened_dict: dict) -> {str, str, str}: # subscription_id, resource_group_name, alert_name
 
-   requests.post("https://pipos.free.beeceptor.com",
-                 data=json.dumps(flattened_dict))
-
    alert_rule_id = flattened_dict["data.essentials.alertRuleID"]
 
    result = re.findall(r'\/subscriptions\/(.*)\/resourceGroups\/(.*)\/providers\/(.*)\/activityLogAlerts\/(.*)', alert_rule_id)
@@ -206,7 +202,7 @@ def get_resource_group_tags(flattened_dict: dict) -> dict:
 def  send_to_dynatrace(req: func.HttpRequest) -> func.HttpResponse:
 
     body_dict = get_body_dict_from_request(req)
-    logger.info("body_dict: {0}".format(body_dict))
+    logger.debug("body_dict: {0}".format(body_dict))
 
     dynatrace_api_and_token = get_dynatrace_url_and_token(AZURE_KEYVAULT_NAME)
     dynatrace_api_url = dynatrace_api_and_token["dynatrace_api_url"]
@@ -227,11 +223,11 @@ def  send_to_dynatrace(req: func.HttpRequest) -> func.HttpResponse:
     flattened_dict["severity"] = get_severity(flattened_dict["data.essentials.severity"])
     flattened_dict["log.source"] = "Azure Monitoring Alert"
 
-    logger.info("added keys to flattened_dict, result: {0}".format(flattened_dict))
+    logger.debug("added keys to flattened_dict, result: {0}".format(flattened_dict))
 
     # Send it to Dynatrace
 
-    logger.info("Send to url: {0}".format(dynatrace_api_url))
+    logger.debug("Send to url: {0}".format(dynatrace_api_url))
     headers = {"Content-Type":"application/json; charset=utf-8",
                "Authorization": "Api-Token " + dynatrace_api_token}
 
@@ -244,8 +240,8 @@ def  send_to_dynatrace(req: func.HttpRequest) -> func.HttpResponse:
 
         raise(E)
 
-    logger.info("Status code POST request: {0}".format(request_to_dynatrace.status_code))
-    logger.info("Content POST request: {0}".format(request_to_dynatrace.content))
-    logger.info("Raw data POST request: "+str(request_to_dynatrace.raw))
+    logger.debug("Status code POST request: {0}".format(request_to_dynatrace.status_code))
+    logger.debug("Content POST request: {0}".format(request_to_dynatrace.content))
+    logger.debug("Raw data POST request: "+str(request_to_dynatrace.raw))
 
     return func.HttpResponse("Result of sending data to Dynatrace: ", status_code=request_to_dynatrace.status_code)
