@@ -56,7 +56,8 @@ provider "azurerm" {
   features {
     key_vault {
       purge_soft_deleted_secrets_on_destroy = true
-      recover_soft_deleted_secrets          = true
+      recover_soft_deleted_key_vaults       = false
+      recover_soft_deleted_secrets          = false
     }
   }
   subscription_id = var.subscription_id
@@ -64,51 +65,53 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
+data "azurerm_subscription" "primary" {}
+
 data "azurerm_resource_group" "azure-alerts-dynatrace-rg" {
   name = var.azure-alerts-dynatrace-rg-name
 }
 
-resource "azurerm_key_vault" "dynatrace-api-token" {
-  name                       = "dynatrace-api"
-  location                   = data.azurerm_resource_group.azure-alerts-dynatrace-rg.location
-  resource_group_name        = data.azurerm_resource_group.azure-alerts-dynatrace-rg.name
-  tenant_id                  = data.azurerm_client_config.current.tenant_id
-  sku_name                   = "standard"
-  soft_delete_retention_days = 7
-  enable_rbac_authorization  = true
-  enabled_for_deployment     = false
-  purge_protection_enabled   = true
-
-  access_policy {
-    tenant_id = data.azurerm_client_config.current.tenant_id
-    object_id = data.azurerm_client_config.current.object_id
-
-    secret_permissions = [
-      "Set",
-      "List",
-      "Get",
-      "Delete",
-      "Purge",
-      "Recover"
-    ]
-  }
-}
-
-resource "azurerm_key_vault_secret" "dynatrace-api-token" {
-  depends_on = [azurerm_role_assignment.terraform_administrator_keyvault]
-
-  name         = "dynatrace-api-token"
-  value        = var.dynatrace-api-token
-  key_vault_id = azurerm_key_vault.dynatrace-api-token.id
-}
-
-resource "azurerm_key_vault_secret" "dynatrace-api-url" {
-  depends_on = [azurerm_role_assignment.terraform_administrator_keyvault]
-
-  name         = "dynatrace-api-url"
-  value        = var.dynatrace-api-url
-  key_vault_id = azurerm_key_vault.dynatrace-api-token.id
-}
+#resource "azurerm_key_vault" "dynatrace-api-token" {
+#  name                            = "dynatrace-api"
+#  location                        = data.azurerm_resource_group.azure-alerts-dynatrace-rg.location
+#  resource_group_name             = data.azurerm_resource_group.azure-alerts-dynatrace-rg.name
+#  tenant_id                       = data.azurerm_client_config.current.tenant_id
+#  sku_name                        = "standard"
+#  enabled_for_disk_encryption     = true
+#  enable_rbac_authorization       = true
+#  enabled_for_template_deployment = false
+#  enabled_for_deployment          = false
+#  purge_protection_enabled        = false
+#
+#  access_policy {
+#    tenant_id = data.azurerm_client_config.current.tenant_id
+#    object_id = data.azurerm_client_config.current.object_id
+#
+#    secret_permissions = [
+#      "Set",
+#      "List",
+#      "Delete",
+#      "Purge",
+#      "Recover"
+#    ]
+#  }
+#}
+#
+#resource "azurerm_key_vault_secret" "dynatrace-api-token" {
+#  depends_on = [azurerm_role_assignment.terraform_administrator_keyvault]
+#
+#  name         = "dynatrace-api-token"
+#  value        = var.dynatrace-api-token
+#  key_vault_id = azurerm_key_vault.dynatrace-api-token.id
+#}
+#
+#resource "azurerm_key_vault_secret" "dynatrace-api-url" {
+#  depends_on = [azurerm_role_assignment.terraform_administrator_keyvault]
+#
+#  name         = "dynatrace-api-url"
+#  value        = var.dynatrace-api-url
+#  key_vault_id = azurerm_key_vault.dynatrace-api-token.id
+#}
 
 resource "azurerm_storage_account" "azure-alerts-dynatrace-sa" {
   name                     = var.azure-alerts-dynatrace-sa-name
@@ -129,14 +132,6 @@ resource "azurerm_application_insights" "azure-alerts-dynatrace-app-insights" {
   location            = data.azurerm_resource_group.azure-alerts-dynatrace-rg.location
   resource_group_name = data.azurerm_resource_group.azure-alerts-dynatrace-rg.name
   application_type    = "other"
-}
-
-resource "azurerm_log_analytics_workspace" "azure-alerts-dynatrace-app-workspace" {
-  name                = "azure-alerts-dynatrace-app-workspace"
-  location            = data.azurerm_resource_group.azure-alerts-dynatrace-rg.location
-  resource_group_name = data.azurerm_resource_group.azure-alerts-dynatrace-rg.name
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
 }
 
 resource "azurerm_service_plan" "azure-alerts-dynatrace-sp" {
@@ -178,7 +173,8 @@ resource "azurerm_function_app_flex_consumption" "azure-alerts-dynatrace-fa" {
   }
 
   app_settings = {
-      USER_MANAGED_IDENTITY_ID = azurerm_user_assigned_identity.azure-alerts-dynatrace-uai.client_id
+      USER_MANAGED_IDENTITY_ID    = azurerm_user_assigned_identity.azure-alerts-dynatrace-uai.client_id
+      AZURE_FUNCTIONS_ENVIRONMENT = "Development" 
   }
 
   identity {
@@ -188,7 +184,8 @@ resource "azurerm_function_app_flex_consumption" "azure-alerts-dynatrace-fa" {
 }
 
 resource "azurerm_role_assignment" "terraform_administrator_keyvault" {
-    scope                = azurerm_key_vault.dynatrace-api-token.id
+#    scope                = azurerm_key_vault.dynatrace-api-token.id
+    scope               = data.azurerm_subscription.primary.id
     principal_id         = data.azurerm_client_config.current.object_id
     role_definition_name = "Key Vault Administrator"
 }
@@ -196,7 +193,8 @@ resource "azurerm_role_assignment" "terraform_administrator_keyvault" {
 resource "azurerm_role_assignment" "function_read_keyvault" {
     depends_on          = [azurerm_role_assignment.terraform_administrator_keyvault]
 
-    scope               = azurerm_key_vault.dynatrace-api-token.id
+    scope               = data.azurerm_subscription.primary.id
+#    scope               = azurerm_key_vault.dynatrace-api-token.id
     role_definition_name = "Key Vault Secrets User"
     principal_id       = azurerm_user_assigned_identity.azure-alerts-dynatrace-uai.principal_id
 }
@@ -207,4 +205,20 @@ resource "azurerm_role_assignment" "function_write_storageaccount" {
     scope               = azurerm_storage_account.azure-alerts-dynatrace-sa.id
     role_definition_name = "Storage Blob Data Owner"
     principal_id       = azurerm_user_assigned_identity.azure-alerts-dynatrace-uai.principal_id
+}
+
+resource "azurerm_role_assignment" "function_monitoring_reader" {
+    depends_on          = [azurerm_role_assignment.terraform_administrator_keyvault]
+
+    scope               = data.azurerm_subscription.primary.id
+    role_definition_name = "Monitoring Reader"
+    principal_id       = azurerm_user_assigned_identity.azure-alerts-dynatrace-uai.principal_id
+}
+
+resource "azurerm_role_assignment" "function_reader" {
+    depends_on           = [azurerm_role_assignment.terraform_administrator_keyvault]
+
+    scope                = data.azurerm_subscription.primary.id
+    role_definition_name = "Reader"
+    principal_id         = azurerm_user_assigned_identity.azure-alerts-dynatrace-uai.principal_id
 }

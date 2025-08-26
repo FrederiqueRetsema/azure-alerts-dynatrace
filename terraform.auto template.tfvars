@@ -1,6 +1,6 @@
 subscription_id="abcdefg1-23h4-5i67-j8k9-012lm3456no7"
 azure-alerts-dynatrace-rg-name="my-resourcegroup"
-azure-alerts-dynatrace-sa-name="storageacctname"
+azure-alerts-dynatrace-sa-name="storageaccounttname"
 azure-alerts-dynatrace-sp-name="serviceplanname"
 azure-alerts-dynatrace-fa-name="functionappname"
 azure-alerts-dynatrace-fn-name="functionname"

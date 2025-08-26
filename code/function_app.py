@@ -4,11 +4,15 @@ import logging
 import requests
 import json
 import os
+import re
 
 from azure.identity import ManagedIdentityCredential
 from azure.keyvault.secrets import SecretClient 
+from azure.mgmt.monitor import MonitorManagementClient
+from azure.mgmt.resource import ResourceManagementClient
 
 AZURE_KEYVAULT_NAME = "dynatrace-api"
+USER_MANAGED_IDENTITY_ID = os.environ["USER_MANAGED_IDENTITY_ID"]  
 
 #app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 app = func.FunctionApp()
@@ -99,9 +103,8 @@ def get_dynatrace_url_and_token(vault_name : str) -> {str, str}:
 
   try:
     vault_url = "https://{0}.vault.azure.net".format(vault_name)
-    user_managed_identity_id = os.environ["USER_MANAGED_IDENTITY_ID"]  
 
-    credential = ManagedIdentityCredential(client_id=user_managed_identity_id) 
+    credential = ManagedIdentityCredential(client_id=USER_MANAGED_IDENTITY_ID) 
     client = SecretClient(vault_url=vault_url,
                           credential=credential)
 
@@ -113,6 +116,87 @@ def get_dynatrace_url_and_token(vault_name : str) -> {str, str}:
     raise(E)
 
   return {"dynatrace_api_url": dynatrace_api_url, "dynatrace_api_token": dynatrace_api_token}
+
+
+def remove_spaces_from_tag(tag: str) -> str:
+   list_of_words = tag.split()
+
+   result = ""
+   for word in list_of_words:
+      result += word
+   
+   return result
+
+
+def get_alert_metadata(flattened_dict: dict) -> {str, str, str}: # subscription_id, resource_group_name, alert_name
+
+   requests.post("https://pipos.free.beeceptor.com",
+                 data=json.dumps(flattened_dict))
+
+   alert_rule_id = flattened_dict["data.essentials.alertRuleID"]
+
+   result = re.findall(r'\/subscriptions\/(.*)\/resourceGroups\/(.*)\/providers\/(.*)\/activityLogAlerts\/(.*)', alert_rule_id)
+   subscription_id = result[0][0]
+   resource_group_name = result[0][1]
+   alert_name = result[0][3]
+
+   return (subscription_id, resource_group_name, alert_name)
+
+
+def get_alert_tags(flattened_dict: dict) -> dict:
+    
+
+    new_dict = {}
+    try:
+      subscription_id, resource_group_name, alert_name = get_alert_metadata(flattened_dict)
+
+      credential = ManagedIdentityCredential(client_id=USER_MANAGED_IDENTITY_ID) 
+      monitor_client = MonitorManagementClient(
+          credential=credential,
+          subscription_id=subscription_id
+      )
+
+      activity_log_alert = monitor_client.activity_log_alerts.get(
+          resource_group_name,
+          alert_name
+      )
+
+      for tag in activity_log_alert.tags:
+          new_dict["alert.tag."+remove_spaces_from_tag(tag)] = activity_log_alert.tags[tag]
+    except Exception as E:
+       logging.warning("Error in determining alert tags: " + str(E))
+
+    return new_dict
+
+
+def get_resource_group_metadata(flattened_dict: dict) -> {str, str}: # subscription_id, resource_group_name
+
+   alert_target_ids = flattened_dict["data.essentials.alertTargetIDs"]
+
+   result = re.findall(r'\/subscriptions\/(.*)\/resourcegroups\/(.*)\/providers\/(.*)', alert_target_ids[0])
+   subscription_id = result[0][0]
+   resource_group_name = result[0][1]
+
+   return (subscription_id, resource_group_name)
+
+
+def get_resource_group_tags(flattened_dict: dict) -> dict:
+    
+    new_dict = {}
+    try:
+      subscription_id, resource_group_name = get_resource_group_metadata(flattened_dict)
+
+      credential = ManagedIdentityCredential(client_id=USER_MANAGED_IDENTITY_ID) 
+      resource_client = ResourceManagementClient(credential, subscription_id)
+
+      rg_result = resource_client.resource_groups.get(resource_group_name)
+
+      for tag in rg_result.tags:
+          new_dict["resourcegroup.tag."+remove_spaces_from_tag(tag)] = rg_result.tags[tag]
+    except Exception as E:
+       logging.warning("Error in determining resource group tags: " + str(E))
+
+    return new_dict
 
 
 # Main
@@ -133,12 +217,17 @@ def  send_to_dynatrace(req: func.HttpRequest) -> func.HttpResponse:
     flattened_dict = flatten(dict_with_new_names)
     logger.info("flattened_dict: {0}".format(flattened_dict))
 
+    # Add tags
+    flattened_dict.update(get_alert_tags(flattened_dict))
+    flattened_dict.update(get_resource_group_tags(flattened_dict))
+
     # Add some keys that are needed by log lines that are inserted by the Log Monitoring API
 
     flattened_dict["timestamp"] = flattened_dict["data.essentials.firedDateTime"]
     flattened_dict["severity"] = get_severity(flattened_dict["data.essentials.severity"])
     flattened_dict["log.source"] = "Azure Monitoring Alert"
-    logger.info("added keys to flattened_dict: {0}".format(flattened_dict))
+
+    logger.info("added keys to flattened_dict, result: {0}".format(flattened_dict))
 
     # Send it to Dynatrace
 
@@ -160,20 +249,3 @@ def  send_to_dynatrace(req: func.HttpRequest) -> func.HttpResponse:
     logger.info("Raw data POST request: "+str(request_to_dynatrace.raw))
 
     return func.HttpResponse("Result of sending data to Dynatrace: ", status_code=request_to_dynatrace.status_code)
-
-# import azure.functions as  func
-# import logging
-# import requests
-# import json
-# import os
-
-# app = func.FunctionApp()
-
-# @app.function_name(name="SendToDynatrace")
-# @app.route(route="send_to_dynatrace")
-# def  send_to_dynatrace(req: func.HttpRequest) -> func.HttpResponse:
-#   logging.info(message="Test")
-#   r = requests.post("https://pipos.free.beeceptor.com",
-#                     data=str(os.environ))
-
-#   return  func.HttpResponse("HttpTrigger1 function processed a request!!!")    

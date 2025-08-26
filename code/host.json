@@ -1,14 +1,15 @@
 {
   "version": "2.0",
   "logging": {
-    "fileLoggingMode": "always",
+    "fileLoggingMode": "debugOnly",
     "logLevel": {
-      "default": "Trace",
-      "Function": "Trace"
+      "default": "Debug",
+      "Function": "Debug"
     },
     "applicationInsights": {
       "samplingSettings": {
-        "isEnabled": false
+        "isEnabled": true,
+        "excludedTypes": "Request"
       }
     }
   },
@@ -16,7 +17,7 @@
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.*, 5.0.0)"
   },
-  "functions": [],
+  "functions": ["SendToDynatrace"],
   "extensions": {
       "http": {
           "routePrefix": ""

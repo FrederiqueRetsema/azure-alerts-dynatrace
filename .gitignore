@@ -1,10 +1,10 @@
 setenv.sh
+testfunction.sh
 terraform.auto.tfvars
 .terraform.lock.hcl
 .terraform.tfstate*
 terraform.plan
 terraform.tfstate*
-local.settings.json
 __pycache__
 .terraform
 .vscode
